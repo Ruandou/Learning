@@ -1,0 +1,446 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>俄罗斯方块小游戏</title>
+    <style type="text/css">
+        body {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <div><h3>Tetris</h3></div>
+        <canvas id="tetris" width="201" height="360"></canvas>
+        <div id="scores"><span>Scores:</span><span id="sc">0</span></div>
+    </div>
+    <script type="text/javascript">
+        /*
+         *  -------
+         * |   |   |
+         *  -------
+         * |   |   |
+         *  -------
+         */
+        var style1 = [[[0, 0], [1, 0], [0, -1], [1, -1]]];
+        /*
+         *   ---
+         *  |   |
+         *   ---
+         *  |   |
+         *   ---
+         *  |   |
+         *   ---
+         *  |   |
+         *   ---
+         */
+        var style2 = [[[0, 0], [0, -1], [0, -2], [0, -3]],
+                      [[0, 0], [1, 0], [2, 0], [3, 0]]];
+        /*
+         *      --- ---
+         *     |   |   |
+         *  -----------
+         * |   |   |
+         *  --- ---
+         *
+         */
+        var style3 = [[[0, 0], [1, 0], [1, -1], [2, -1]],
+                      [[0, 0], [0, -1], [-1, -1], [-1, -2]]];
+        /*
+         *  -------
+         * |   |   |
+         *  -----------
+         *     |   |   |
+         *      -------
+         */
+        var style4 = [[[0, 0], [1, 0], [0, -1], [-1, -1]],
+                      [[0, 0], [0, -1], [1, -1], [1, -2]]];
+        /*
+         *  -------
+         * |   |   |
+         *  -------
+         * |   |
+         *  ---
+         * |   |
+         *  ---
+         */
+        var style5 = [[[0, 0], [0, -1], [0, -2], [1, -2]],
+                      [[0, 0], [0, -1], [-1, -1], [-2, -1]],
+                      [[0, 0], [1, 0], [1, -1], [1, -2]],
+                      [[0, 0], [1, 0], [2, 0], [0, -1]]];
+        /*
+         *  -------
+         * |   |   |
+         *  -------
+         *     |   |
+         *      ---
+         *     |   |
+         *      ---
+         */
+        var style6 = [[[0, 0], [0, -1], [0, -2], [-1, -2]],
+                      [[0, 0], [1, 0], [2, 0], [2, -1]],
+                      [[0, 0], [1, 0], [0, -1], [0, -2]],
+                      [[0, 0], [0, -1], [1, -1], [2, -1]]];
+        /*
+         *      ---
+         *     |   |
+         *  -----------
+         * |   |   |   |
+         *  -----------
+         */
+        var style7 = [[[0, 0], [1, 0], [2, 0], [1, -1]],
+                      [[0, 0], [0, -1], [0, -2], [1, -1]],
+                      [[0, 0], [0, -1], [1, -1], [-1, -1]],
+                      [[0, 0], [0, -1], [0, -2], [-1, -1]]];
+
+        var styles = [style1, style2, style3, style4, style5, style6, style7];
+
+        var colors = ["blue", "orange", "red", "green", "gold", "pink", "cyan", "white"];
+
+        function Box(_x, _y, _color, _container) {
+            this.x = _x;
+            this.y = _y;
+            this.color = _color;
+            this.container = _container;
+            this.len = _container.lenOfBox;
+            this.margin = _container.marginOfBox;
+
+            this.xStart = function () {
+                return this.x * this.len + this.margin;
+            }
+
+            this.yStart = function () {
+                return this.y * this.len + this.margin;
+            }
+
+            this.lenDraw = function () {
+                return this.len - 2 * this.margin;
+            }
+
+            this.visible = function () {
+                return this.x >= 0 && this.y >= 0 && this.x < this.container.rows && this.y < this.container.columns;
+            }
+            
+            /* 
+             * If a box is just out of the top of the container, it is activity.
+             */
+            this.activity = function () {
+                return this.x >= 0 && this.x < this.container.rows && this.y < this.container.columns;
+            }
+
+            this.draw = function () {
+                if (this.visible()) {
+                    this.container.context.fillStyle = this.color;
+                    this.container.context.fillRect(this.xStart(), this.yStart(), this.lenDraw(), this.lenDraw());
+                }
+            }
+
+            this.clear = function () {
+                if (this.visible()) {
+                    this.container.context.clearRect(this.xStart(), this.yStart(), this.lenDraw(), this.lenDraw());
+                }
+            }
+
+            this.exists = function () {
+                return this.visible() && this.container.exists(this);
+            }
+
+            this.blocked = function () {
+                return !this.visible() || this.exists();
+            }
+
+            this.freezed = function () {
+                return !this.activity() || this.exists();
+            }
+        }
+
+        function Shape(_x, _y, _color, _styles, _curStyle, _container) {
+            this.styles = _styles
+            this.curStyle = _curStyle;
+            this.color = _color;
+            this.x = _x;
+            this.y = _y;
+            this.container = _container;
+            this.lenOfBox = _container.lenOfBox;
+            this.marginOfBox = _container.marginOfBox;
+
+            this.getBoxes = function (_x, _y, _curStyle) {
+                var style = this.styles[_curStyle];
+                var boxes = new Array();
+
+                for (var i = 0; i < style.length; i++) {
+                    boxes[i] = new Box(_x + style[i][0], _y + style[i][1], this.color, this.container);
+                }
+
+                return boxes;
+            }
+
+            this.boxes = function () {
+                return this.getBoxes(this.x, this.y, this.curStyle);
+            }
+
+            this.draw = function () {
+                var boxes = this.boxes();
+
+                for (var i = 0; i < boxes.length; i++) {
+                    boxes[i].draw();
+                }
+            }
+
+            this.clear = function () {
+                var boxes = this.boxes();
+
+                for (var i = 0; i < boxes.length; i++) {
+                    boxes[i].clear();
+                }
+            }
+
+            this.blocked = function (_x, _y, _curStyle) {
+                var boxes = this.getBoxes(_x, _y, _curStyle);
+
+                for (var i = 0; i < boxes.length; i++) {
+                    if (boxes[i].freezed()) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            this.blockedLeft = function () {
+                return this.blocked(this.x - 1, this.y, this.curStyle);
+            }
+
+            this.blockedRight = function () {
+                return this.blocked(this.x + 1, this.y, this.curStyle);
+            }
+
+            this.blockedDown = function () {
+                return this.blocked(this.x, this.y + 1, this.curStyle);
+            }
+
+            this.blockedShift = function () {
+                return this.blocked(this.x, this.y, this.nextStyle());
+            }
+
+            this.left = function () {
+                this.x -= 1;
+            }
+
+            this.right = function () {
+                this.x += 1;
+            }
+
+            this.down = function () {
+                this.y += 1;
+            }
+
+            this.nextStyle = function () {
+                return (this.curStyle + 1) % this.styles.length;
+            }
+
+            this.shift = function () {
+                this.curStyle = this.nextStyle();
+            }
+
+            this.maxY = function () {
+                return this.y;
+            }
+
+            this.minY = function () {
+                var boxes = this.boxes();
+
+                var min = boxes[0].y;
+                for (var i = 1; i < boxes.length; i++) {
+                    if (min > boxes[i].y) {
+                        min = boxes[i].y;
+                    }
+                }
+
+                return min;
+            }
+        }
+
+        function Container(_rows, _columns, _lenOfBox, _marginOfBox, _context) {
+            this.rows = _rows;
+            this.columns = _columns;
+            this.lenOfBox = _lenOfBox;
+            this.marginOfBox = _marginOfBox;
+            this.context = _context;
+            this.boxes = new Array(this.columns);
+
+            this.initContainer = function () {
+                for (var i = 0; i < this.boxes.length; i++) {
+                    this.boxes[i] = new Array(this.rows);
+                    for (var j = 0; j < this.boxes[i].length; j++) {
+                        this.boxes[i][j] = [0, "white"];
+                    }
+                }
+            }
+
+            this.update = function (_shape) {
+                var boxesOfShape = _shape.boxes();
+                var minY = _shape.minY();
+                var maxY = _shape.maxY();
+                var rowOfDelete = 0;
+
+                for (var i = 0; i < boxesOfShape.length; i++) {
+                    this.boxes[boxesOfShape[i].y][boxesOfShape[i].x] = [1, _shape.color];
+                }
+
+                for (var i = maxY; i >= minY;) {
+                    if (this.full(i)) {
+                        rowOfDelete++;
+                        this.reset(i);
+                        var tmp = this.boxes[i];
+                        for (var j = i - 1; j >= 0; j--) {
+                            this.boxes[j + 1] = this.boxes[j];
+                        }
+                        this.boxes[0] = tmp;
+                    } else {
+                        i--;
+                    }
+                }
+
+                for (var i = maxY; i >= 0; i--) {
+                    this.clear(i);
+                    this.draw(i);
+                }
+
+                return rowOfDelete;
+            }
+
+            this.draw = function (_row) {
+                var box;
+                for (var i = 0; i < this.boxes[_row].length; i++) {
+                    box = new Box(i, _row, this.boxes[_row][i][1], this);
+                    box.draw();
+                }
+            }
+
+            this.clear = function (_row) {
+                var box;
+                for (var i = 0; i < this.boxes[_row].length; i++) {
+                    box = new Box(i, _row, this.boxes[_row][i][1], this);
+                    box.clear();
+                }
+            }
+
+            this.reset = function (_row) {
+                for (var i = 0; i < this.boxes[_row].length; i++) {
+                    this.boxes[_row][i] = [0, "white"];
+                }
+            }
+
+            this.full = function (_row) {
+                for (var i = 0; i < this.boxes[_row].length; i++) {
+                    if (!this.boxes[_row][i][0]) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            this.exists = function (_box) {
+                return this.boxes[_box.y][_box.x][0];
+            }
+        }
+
+        var rows = 10;
+        var colomns = 18;
+        var lenOfBox = 20;
+        var marginOfBox = 1;
+
+        var canvas = document.getElementById("tetris");
+        var context = canvas.getContext("2d");
+
+        var container = new Container(rows, colomns, lenOfBox, marginOfBox, context);
+        var shape = nextShape();
+        var timeOutHandler;
+        var pause = false;
+
+        function initTetris() {
+            context.strokeStyle = "black";
+            context.strokeRect(0, 0, 200, 360);
+            document.onkeydown = pressKey;
+            container.initContainer();
+        }
+
+        function playing() {
+            if (shape.blockedDown()) {
+                updateScores(container.update(shape));
+                shape = nextShape();
+                if (shape.blockedDown()) {
+                    clearTimeout(timeOutHandler);
+                }
+                shape.draw();
+            } else if (!pause) {
+                shape.clear();
+                shape.down();
+                shape.draw();
+            }
+            timeOutHandler = setTimeout("playing()", 500);
+        }
+
+        function updateScores(_rows) {
+            var sc = document.getElementById("sc");
+            var score = 0;
+
+            if (_rows == 1) {
+                score = 100;
+            } else if (_rows == 2) {
+                score = 300;
+            } else if (_rows == 3) {
+                score = 500;
+            } else if (_rows == 4) {
+                score = 700;
+            }
+
+            sc.innerHTML = Number(sc.innerHTML) + score;
+        }
+
+        function nextShape() {
+            var style = Math.ceil(Math.random() * styles.length);
+
+            return new Shape(4, 0, colors[style - 1], styles[style - 1], 0, container);
+        }
+
+        function pressKey(_event) {
+            var e = _event || window.event || arguments.callee.caller.arguments[0];
+
+            if (e && e.keyCode == 37) { // Left
+                if (!shape.blockedLeft() && !pause) {
+                    shape.clear();
+                    shape.left();
+                    shape.draw();
+                }
+            } else if (e && e.keyCode == 39) { // Right
+                if (!shape.blockedRight() && !pause) {
+                    shape.clear();
+                    shape.right();
+                    shape.draw();
+                }
+            } else if (e && e.keyCode == 40) { // Down
+                if (!shape.blockedDown() && !pause) {
+                    shape.clear();
+                    shape.down();
+                    shape.draw();
+                }
+            } else if (e && e.keyCode == 38) { // Up - shape shift
+                if (!shape.blockedShift() && !pause) {
+                    shape.clear();
+                    shape.shift();
+                    shape.draw();
+                }
+            } else if (e && e.keyCode == 13) { // Enter - pause or play
+                pause = !pause;
+            }
+        }
+
+        initTetris();
+        playing();
+    </script>
+</body>
+</html>
