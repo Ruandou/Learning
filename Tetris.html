@@ -5,16 +5,43 @@
     <meta charset="utf-8" />
     <title>Tetris</title>
     <style type="text/css">
-        body {
+        #tetris {
+            width: 1000px;
+            margin: 0 auto;
+        }
+        #header {
             text-align: center;
+        }
+        #left {
+            float: left;
+            text-align: right;
+            width: 60%;
+        }
+        #right {
+            float: left;
+            margin-left: 20px;
+        }
+        span {
+            margin: 10px;
         }
     </style>
 </head>
 <body>
-    <div>
-        <div><h3>Tetris</h3></div>
-        <canvas id="tetris" width="201" height="360"></canvas>
-        <div id="scores"><span>Scores:</span><span id="sc">0</span></div>
+    <div id="tetris">
+        <div id="header">
+            <h3>Tetris</h3>
+        </div>
+        <div id="content">
+            <div id="left">
+                <canvas id="screen" width="200" height="360"></canvas>
+            </div>
+            <div id="right">
+                <span id="scores">Scores:</span><br /><span id="sc">0</span><br /><br />
+                <span>Level:</span><br /><span id="le">1</span><br /><br />
+                <span>Next:</span><br />
+                <canvas id="next" width="100" height="100"></canvas>
+            </div>
+        </div>
     </div>
     <script type="text/javascript">
         /*
@@ -95,9 +122,8 @@
                       [[0, 0], [0, -1], [1, -1], [-1, -1]],
                       [[0, 0], [0, -1], [0, -2], [-1, -1]]];
 
-        var styles = [style1, style2, style3, style4, style5, style6, style7];
-
-        var colors = ["blue", "orange", "red", "green", "gold", "pink", "cyan", "white"];
+        var styles = [[style1, "blue"], [style2, "orange"], [style3, "red"], [style4, "green"],
+                      [style5, "gold"], [style6, "pink"], [style7, "cyan"]];
 
         function Box(_x, _y, _color, _container) {
             this.x = _x;
@@ -120,14 +146,14 @@
             }
 
             this.visible = function () {
-                return this.x >= 0 && this.y >= 0 && this.x < this.container.rows && this.y < this.container.columns;
+                return this.x >= 0 && this.y >= 0 && this.x < this.container.columns && this.y < this.container.rows;
             }
             
             /* 
              * If a box is just out of the top of the container, it is activity.
              */
             this.activity = function () {
-                return this.x >= 0 && this.x < this.container.rows && this.y < this.container.columns;
+                return this.x >= 0 && this.x < this.container.columns && this.y < this.container.rows;
             }
 
             this.draw = function () {
@@ -135,16 +161,18 @@
                     this.container.context.fillStyle = this.color;
                     this.container.context.fillRect(this.xStart(), this.yStart(), this.lenDraw(), this.lenDraw());
                 }
+                return this;
             }
 
             this.clear = function () {
                 if (this.visible()) {
                     this.container.context.clearRect(this.xStart(), this.yStart(), this.lenDraw(), this.lenDraw());
                 }
+                return this;
             }
 
             this.exists = function () {
-                return this.visible() && this.container.exists(this);
+                return this.container.exists(this);
             }
 
             this.blocked = function () {
@@ -154,31 +182,43 @@
             this.freezed = function () {
                 return !this.activity() || this.exists();
             }
+
+            this.move = function (_step) {
+                return new Box(this.x + _step[0], this.y + _step[1], this.color, this.container);
+            }
+
+            this.equals = function (_box) {
+                if (_box.x == this.x && _box.y == this.y) {
+                    return true;
+                }
+                return false;
+            }
         }
 
-        function Shape(_x, _y, _color, _styles, _curStyle, _container) {
-            this.styles = _styles
-            this.curStyle = _curStyle;
-            this.color = _color;
+        function Shape(_x, _y, _style, _variant, _container) {
+            this.style = _style; // The style of the shape, including coordinates and color.
+            this.coordinates = _style[0]; // The coordinates of different variants.
+            this.color = _style[1];
+            this.variant = _variant; // Current variant.
             this.x = _x;
             this.y = _y;
             this.container = _container;
             this.lenOfBox = _container.lenOfBox;
             this.marginOfBox = _container.marginOfBox;
 
-            this.getBoxes = function (_x, _y, _curStyle) {
-                var style = this.styles[_curStyle];
+            this.getBoxes = function (_x, _y, _variant) {
+                var curVariant = this.coordinates[_variant];
                 var boxes = new Array();
 
-                for (var i = 0; i < style.length; i++) {
-                    boxes[i] = new Box(_x + style[i][0], _y + style[i][1], this.color, this.container);
+                for (var i = 0; i < curVariant.length; i++) {
+                    boxes[i] = new Box(_x + curVariant[i][0], _y + curVariant[i][1], this.color, this.container);
                 }
 
                 return boxes;
             }
 
             this.boxes = function () {
-                return this.getBoxes(this.x, this.y, this.curStyle);
+                return this.getBoxes(this.x, this.y, this.variant);
             }
 
             this.draw = function () {
@@ -187,6 +227,8 @@
                 for (var i = 0; i < boxes.length; i++) {
                     boxes[i].draw();
                 }
+
+                return this;
             }
 
             this.clear = function () {
@@ -195,10 +237,12 @@
                 for (var i = 0; i < boxes.length; i++) {
                     boxes[i].clear();
                 }
+
+                return this;
             }
 
-            this.blocked = function (_x, _y, _curStyle) {
-                var boxes = this.getBoxes(_x, _y, _curStyle);
+            this.blocked = function (_x, _y, _variant) {
+                var boxes = this.getBoxes(_x, _y, _variant);
 
                 for (var i = 0; i < boxes.length; i++) {
                     if (boxes[i].freezed()) {
@@ -210,39 +254,43 @@
             }
 
             this.blockedLeft = function () {
-                return this.blocked(this.x - 1, this.y, this.curStyle);
+                return this.blocked(this.x - 1, this.y, this.variant);
             }
 
             this.blockedRight = function () {
-                return this.blocked(this.x + 1, this.y, this.curStyle);
+                return this.blocked(this.x + 1, this.y, this.variant);
             }
 
             this.blockedDown = function () {
-                return this.blocked(this.x, this.y + 1, this.curStyle);
+                return this.blocked(this.x, this.y + 1, this.variant);
             }
 
             this.blockedShift = function () {
-                return this.blocked(this.x, this.y, this.nextStyle());
+                return this.blocked(this.x, this.y, this.next());
             }
 
             this.left = function () {
                 this.x -= 1;
+                return this;
             }
 
             this.right = function () {
                 this.x += 1;
+                return this;
             }
 
             this.down = function () {
                 this.y += 1;
+                return this;
             }
 
-            this.nextStyle = function () {
-                return (this.curStyle + 1) % this.styles.length;
+            this.next = function () {
+                return (this.variant + 1) % this.coordinates.length;
             }
 
             this.shift = function () {
-                this.curStyle = this.nextStyle();
+                this.variant = this.next();
+                return this;
             }
 
             this.maxY = function () {
@@ -263,21 +311,38 @@
             }
         }
 
-        function Container(_rows, _columns, _lenOfBox, _marginOfBox, _context) {
-            this.rows = _rows;
-            this.columns = _columns;
+        function Container(_lenOfBox, _marginOfBox, _canvas) {
             this.lenOfBox = _lenOfBox;
             this.marginOfBox = _marginOfBox;
-            this.context = _context;
-            this.boxes = new Array(this.columns);
+            this.canvas = document.getElementById(_canvas);
+            this.context = this.canvas.getContext("2d");
+            this.rows = Math.floor(this.canvas.height / this.lenOfBox);
+            this.columns = Math.floor(this.canvas.width / this.lenOfBox);
+            this.boxes;
 
-            this.initContainer = function () {
+            // Initialize the boxes.
+            this.initBoxes = function () {
+                this.boxes = new Array(this.rows);
                 for (var i = 0; i < this.boxes.length; i++) {
-                    this.boxes[i] = new Array(this.rows);
+                    this.boxes[i] = new Array(this.columns);
                     for (var j = 0; j < this.boxes[i].length; j++) {
                         this.boxes[i][j] = [0, "white"];
                     }
                 }
+                return this;
+            }
+
+            // Draw the outer border of the screen.
+            this.initScreen = function () {
+                this.context.strokeStyle = "black";
+                this.context.strokeRect(0, 0, this.canvas.width, this.canvas.height);
+                return this;
+            }
+
+            this.initContainer = function () {
+                this.initBoxes();
+                this.initScreen();
+                return this;
             }
 
             this.update = function (_shape) {
@@ -287,10 +352,12 @@
                 var rowOfDelete = 0;
 
                 for (var i = 0; i < boxesOfShape.length; i++) {
-                    this.boxes[boxesOfShape[i].y][boxesOfShape[i].x] = [1, _shape.color];
+                    if (boxesOfShape[i].visible()) {
+                        this.boxes[boxesOfShape[i].y][boxesOfShape[i].x] = [1, _shape.color];
+                    }
                 }
 
-                for (var i = maxY; i >= minY;) {
+                for (var i = maxY; i >= minY && i >= 0;) {
                     if (this.full(i)) {
                         rowOfDelete++;
                         this.reset(i);
@@ -318,6 +385,7 @@
                     box = new Box(i, _row, this.boxes[_row][i][1], this);
                     box.draw();
                 }
+                return this;
             }
 
             this.clear = function (_row) {
@@ -326,12 +394,14 @@
                     box = new Box(i, _row, this.boxes[_row][i][1], this);
                     box.clear();
                 }
+                return this;
             }
 
             this.reset = function (_row) {
                 for (var i = 0; i < this.boxes[_row].length; i++) {
                     this.boxes[_row][i] = [0, "white"];
                 }
+                return this;
             }
 
             this.full = function (_row) {
@@ -344,67 +414,45 @@
             }
 
             this.exists = function (_box) {
-                return this.boxes[_box.y][_box.x][0];
+                return _box.visible() && this.boxes[_box.y][_box.x][0];
+            }
+
+            this.shape = function (_x, _y, _style) {
+                return new Shape(_x, _y, _style, 0, this);
             }
         }
 
-        var rows = 10;
-        var colomns = 18;
         var lenOfBox = 20;
         var marginOfBox = 1;
 
-        var canvas = document.getElementById("tetris");
-        var context = canvas.getContext("2d");
-
-        var container = new Container(rows, colomns, lenOfBox, marginOfBox, context);
-        var shape = nextShape();
+        var container = new Container(lenOfBox, marginOfBox, "screen");
+        var containerNext = new Container(10, 1, "next");
+        var shape = container.shape(4, 0, styles[next()]);
+        var shapeNext = containerNext.shape(2, 3, styles[next()]);
         var timeOutHandler;
         var pause = false;
-
-        function initTetris() {
-            context.strokeStyle = "black";
-            context.strokeRect(0, 0, 200, 360);
-            document.onkeydown = pressKey;
-            container.initContainer();
-        }
-
-        function playing() {
-            if (shape.blockedDown()) {
-                updateScores(container.update(shape));
-                shape = nextShape();
-                if (shape.blockedDown()) {
-                    clearTimeout(timeOutHandler);
-                }
-                shape.draw();
-            } else if (!pause) {
-                shape.clear();
-                shape.down();
-                shape.draw();
-            }
-            timeOutHandler = setTimeout("playing()", 500);
-        }
+        var speed = 500;
 
         function updateScores(_rows) {
             var sc = document.getElementById("sc");
+            var le = document.getElementById("le");
             var score = 0;
+            var level;
 
-            if (_rows == 1) {
-                score = 100;
-            } else if (_rows == 2) {
-                score = 300;
-            } else if (_rows == 3) {
-                score = 500;
-            } else if (_rows == 4) {
-                score = 700;
+            score = (100 + _rows * 100) * _rows / 2;
+            score += Number(sc.innerHTML);
+            sc.innerHTML = score;
+
+            level = Number(le.innerHTML);
+            if (score >= level * 10000) {
+                speed >>= 1;
+                level++;
+                le.innerHTML = level;
             }
-
-            sc.innerHTML = Number(sc.innerHTML) + score;
         }
 
-        function nextShape() {
-            var style = Math.ceil(Math.random() * styles.length);
-
-            return new Shape(4, 0, colors[style - 1], styles[style - 1], 0, container);
+        function next() {
+            return Math.floor(Math.random() * styles.length);
         }
 
         function pressKey(_event) {
@@ -412,33 +460,235 @@
 
             if (e && e.keyCode == 37) { // Left
                 if (!shape.blockedLeft() && !pause) {
-                    shape.clear();
-                    shape.left();
-                    shape.draw();
+                    shape.clear().left().draw();
                 }
             } else if (e && e.keyCode == 39) { // Right
                 if (!shape.blockedRight() && !pause) {
-                    shape.clear();
-                    shape.right();
-                    shape.draw();
+                    shape.clear().right().draw();
                 }
             } else if (e && e.keyCode == 40) { // Down
                 if (!shape.blockedDown() && !pause) {
-                    shape.clear();
-                    shape.down();
-                    shape.draw();
+                    shape.clear().down().draw();
                 }
             } else if (e && e.keyCode == 38) { // Up - shape shift
                 if (!shape.blockedShift() && !pause) {
-                    shape.clear();
-                    shape.shift();
-                    shape.draw();
+                    shape.clear().shift().draw();
                 }
             } else if (e && e.keyCode == 13) { // Enter - pause or play
                 pause = !pause;
             }
         }
 
+        function initTetris() {
+            document.onkeydown = pressKey;
+            container.initContainer();
+            shapeNext.draw();
+        }
+
+        function playing() {
+            if (shape.blockedDown()) {
+                updateScores(container.update(shape));
+                shape = container.shape(4, 0, shapeNext.style);
+                shapeNext.clear();
+                shapeNext = containerNext.shape(2, 3, styles[next()]);
+                shapeNext.draw();
+                if (shape.blockedDown()) {
+                    clearTimeout(timeOutHandler);
+                    return;
+                }
+                shape.draw();
+            } else if (!pause) {
+                shape.clear().down().draw();
+            }
+            timeOutHandler = setTimeout("playing()", speed);
+        }
+
+        function Queue(_capacity) {
+            var capacity = _capacity;
+            var container = new Array(_capacity);
+            var front = 0;
+            var rear = 0;
+
+            this.empty = function () {
+                return front != rear;
+            }
+
+            this.pop = function () {
+                var tmp = container[rear];
+                rear = (rear + 1) % capacity;
+                return tmp;
+            }
+
+            this.push = function (_box) {
+                container[front] = _box;
+                front = (front + 1) % capacity;
+            }
+
+            this.top = function () {
+                var tmp = front ? front - 1 : capacity - 1;
+                return container[tmp];
+            }
+
+            this.exists = function (_box) {
+                for (var i = rear; i != front; i = (i + 1) % capacity) {
+                    if (container[i].equals(_box)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        function Snake(_color, _container) {
+            var color = _color
+            var container = _container;
+            var body = new Queue(_container.rows * _container.columns);
+            var direction = 1; // 0 -> left, 1 -> down, 2 -> right, 3 -> up
+            var steps = [[-1, 0], [0, 1], [1, 0], [0, -1]];
+
+            this.head = function () {
+                return body.top();
+            }
+
+            this.tail = function () {
+                return body.pop();
+            }
+
+            this.initSnake = function () {
+                for (var i = -4; i < 0; i++) {
+                    var box = new Box(0, i, color, container);
+                    body.push(box.draw());
+                }
+                return this;
+            }
+
+            this.up = function (_food) {
+                if (direction != 1) {
+                    direction = 3;
+                    this.move(_food);
+                }
+                return this;
+            }
+
+            this.down = function (_food) {
+                if (direction != 3) {
+                    direction = 1;
+                    this.move(_food);
+                }
+                return this;
+            }
+
+            this.left = function (_food) {
+                if (direction != 2) {
+                    direction = 0;
+                    this.move(_food);
+                }
+                return this;
+            }
+
+            this.right = function (_food) {
+                if (direction != 0) {
+                    direction = 2;
+                    this.move(_food);
+                }
+                return this;
+            }
+
+            this.blocked = function () {
+                var tmp = this.head().move(steps[direction]); // Calls the move method of the Box object, not Snake's.
+                return !tmp.visible() || this.exists(tmp);
+            }
+
+            this.next = function () {
+                return this.head().move(steps[direction]); // Calls the move method of the Box object, not Snake's.
+            }
+
+            this.move = function (_food) {
+                body.push(this.next().draw());
+                if (!this.head().equals(_food.box())) {
+                    this.tail().clear();
+                } else {
+                    _food.next();
+                }
+                return this;
+            }
+
+            this.exists = function (_box) {
+                return body.exists(_box);
+            }
+        }
+
+        function Food(_color, _snake, _container) {
+            var container = _container;
+            var color = _color;
+            var snake = _snake;
+            var box;
+
+            this.x = function () {
+                return Math.floor(Math.random() * container.columns);
+            }
+
+            this.y = function () {
+                return Math.floor(Math.random() * container.rows);
+            }
+
+            this.next = function () {
+                box = new Box(this.x(), this.y(), color, container);
+                while (snake.exists(box)) {
+                    box = new Box(this.x(), this.y(), color, container);
+                }
+                box.draw();
+                return this;
+            }
+
+            this.box = function () {
+                return box;
+            }
+        }
+
+        var snake = new Snake("red", container);
+        var food = new Food("red", snake, container);
+
+        function pressKey1(_event) {
+            var e = _event || window.event || arguments.callee.caller.arguments[0];
+
+            if (e && e.keyCode == 37) { // Left
+                if (!pause) {
+                    snake.left(food);
+                }
+            } else if (e && e.keyCode == 39) { // Right
+                if (!pause) {
+                    snake.right(food);
+                }
+            } else if (e && e.keyCode == 40) { // Down
+                if (!pause) {
+                    snake.down(food);
+                }
+            } else if (e && e.keyCode == 38) { // Up
+                if (!pause) {
+                    snake.up(food);
+                }
+            } else if (e && e.keyCode == 13) { // Enter - pause or play
+                pause = !pause;
+            }
+        }
+
+        function running() {
+            if (snake.blocked()) {
+                clearTimeout("running()", 500);
+                document.onkeydown = null;
+                return;
+            } else if (!pause) {
+                snake.move(food);
+            }
+            timeOutHandler = setTimeout("running()", 500);
+        }
+
+        //document.onkeydown = pressKey1;
+        //container.initContainer();
+        //snake.initSnake();
+        //food.next();
+        //running();
         initTetris();
         playing();
     </script>
