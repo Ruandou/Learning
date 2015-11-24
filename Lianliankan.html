@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>连连看</title>
+    <style type="text/css">
+        body {
+            text-align: center;
+        }
+        #main {
+            width: 1200px;
+            margin: 0 auto;
+        }
+        #header {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="main">
+        <div id="header">
+            <h3>连连看</h3>
+        </div>
+        <div id="hh">
+            <canvas id="timer" width ="960" height="20"></canvas>
+            <canvas id="score" width="60" height="20"></canvas>
+        </div>
+        <div id="screen">
+            <canvas id="cv" width="960" height="720"></canvas>
+            <canvas id="buttonGroup" width ="60" height="720"></canvas>
+        </div>
+        <!--<div id="bottom">
+            <button id="tips">Tips</button>
+            <button id="auto">Auto</button>
+        </div>-->
+    </div>
+    <script type="text/javascript">
+        function Queue() {
+            var container = [];
+            var rear = 0;
+            var front = 0;
+
+            this.empty = function () {
+                return rear == front;
+            }
+
+            this.push = function (_element) {
+                container[front++] = _element;
+            }
+
+            this.pop = function () {
+                return container[rear++];
+            }
+
+            this.at = function (_index) {
+                return container[_index];
+            }
+            
+            this.reset = function () {
+                rear = front = 0;
+            }
+        }
+    
+        function Box(_x, _y, _image, _hidden, _container) {
+            this.x = _x;
+            this.y = _y;
+            this.image = _image;
+            this.hidden = _hidden;
+            this.container = _container;
+            this.context = _container.context;
+            this.len = _container.lenOfBox;
+            this.margin = _container.marginOfBox;
+            this.backgroundColor = _container.backgroundColor;
+            this.outerBackgroundColor = _container.outerBackgroundColor;
+            this.lineColor = _container.lineColor;
+            this.lineWidth = _container.lineWidth;
+        }
+
+        Box.prototype.X = function () { return this.x * this.len + this.margin; }
+        
+        Box.prototype.Y = function () { return this.y * this.len + this.margin; }
+        
+        Box.prototype.Len = function () { return this.len - 2 * this.margin; }
+
+        Box.prototype.draw = function () {
+            this.context.drawImage(this.image, this.X(), this.Y(), this.Len(), this.Len());
+            return this;
+        }
+
+        Box.prototype.clear = function () {
+            if (this.outer()) {
+                this.context.fillStyle = this.outerBackgroundColor;
+            } else {
+                this.context.fillStyle = this.backgroundColor;
+            }
+            this.context.fillRect(this.x * this.len, this.y * this.len, this.len, this.len);
+            return this;
+        }
+
+        Box.prototype.select = function () {
+            this.context.lineWidth = this.lineWidth;
+            this.context.strokeStyle = this.lineColor;
+            this.context.strokeRect(this.X(), this.Y(), this.Len(), this.Len());
+            return this;
+        }
+
+        Box.prototype.unselect = function () {
+            return this.clear().draw();
+        }
+
+        Box.prototype.eliminate = function () {
+            this.hidden = true;
+            return this.clear();
+        }
+        
+        Box.prototype.withCoordinates = function (_x, _y) {
+            return this.x == _x && this.y == _y;
+        }
+        
+        Box.prototype.withXCoordinate = function (_x) {
+            return this.x == _x;
+        }
+        
+        Box.prototype.withYCoordinate = function (_y) {
+            return this.y == _y;
+        }
+        
+        Box.prototype.withSameCoordinates = function (_box) {
+            return this.x == _box.x && this.y == _box.y;
+        }
+        
+        Box.prototype.withSameImage = function (_box) {
+            return this.image == _box.image;
+        }
+        
+        Box.prototype.centerPixelCoordinates = function (_x, _y) {
+            return {
+                'x': _x * this.len + Math.floor(this.len / 2),
+                'y': _y * this.len + Math.floor(this.len / 2)
+            }
+        }
+        
+        Box.prototype.pixelCoordinatesOfConnectedPoint = function (_x, _y) {
+            if (this.withXCoordinate(_x)) {
+                if (this.y > _y) {
+                    return {
+                        'x': _x * this.len + Math.floor(this.len / 2),
+                        'y': this.y * this.len
+                    }
+                } else {
+                    return {
+                        'x': _x * this.len + Math.floor(this.len / 2),
+                        'y': _y * this.len
+                    }
+                }
+            } else {
+                if (this.x > _x) {
+                    return {
+                        'x': this.x * this.len,
+                        'y': _y * this.len + Math.floor(this.len / 2)
+                    }
+                } else {
+                    return {
+                        'x': _x * this.len,
+                        'y': _y * this.len + Math.floor(this.len / 2)
+                    }
+                }
+            }
+        }
+        
+        Box.prototype.swapImage = function (_box) {
+            var tmp = this.image;
+            this.image = _box.image;
+            _box.image = tmp;
+        }
+        
+        Box.prototype.outer = function () {
+            return this.container.outer(this.x, this.y);
+        }
+        
+        function PicturesManager (_path, _number) {
+            var notReady = _number;
+            
+            this.path = _path;
+            this.number = _number;
+            this.suffix = ".jpg";
+            this.images;
+            
+            this.ready = function (_callback) {
+                this.images = new Array(this.number);
+                for (var i = 1; i <= this.number; i++) {
+                    this.images[i - 1] = new Image();
+                    this.images[i - 1].src = this.path + i + this.suffix;
+                    this.images[i - 1].onload = function () { 
+                            notReady--;
+                            if (!notReady) {
+                                _callback();
+                            }
+                        }
+                }
+                return this;
+            }
+            
+            this.pictures = function (_numOfPics) {
+                var pics = [];
+                for (var i = 0; i < _numOfPics; i += 2) {
+                    pics[i] = this.images[Math.floor(Math.random() * this.number)];
+                    pics[i + 1] = pics[i];
+                }
+                return pics;
+            }
+            
+            this.random = function (_pics) {
+                var j;
+                for (var i = 0; i < _pics.length; i++) {
+                    j = Math.floor(Math.random() * _pics.length);
+                    if (i != j) {
+                        var tmp = _pics[i];
+                        _pics[i] = _pics[j];
+                        _pics[j] = tmp;
+                    }
+                }
+                return _pics;
+            }
+            
+            this.generate = function (_numOfPics) {
+                return this.random(this.pictures(_numOfPics));
+            }
+        }
+
+        function Button(_name, _event, _caller, _callTime/*, _parms*/) {
+            this.name = _name;
+            this.event = _event;
+            this.caller = _caller;
+            this.callTime = _callTime;
+            this.parms = [];
+            
+            for (var i = 4; i < arguments.length; i++) {
+                this.parms.push(arguments[i]);
+            }
+        }
+        
+        Button.prototype.text = function () {
+            if (this.callTime == null) {
+                return this.name;
+            } else {
+                return this.name + '(' + this.callTime + ')';
+            }
+        }
+        
+        Button.prototype.onclick = function () {
+            if (this.callTime == null) {
+                this.event.apply(this.caller, this.parms);
+            } else if (this.callTime > 0) {
+                this.event.apply(this.caller, this.parms);
+                this.callTime--;
+            }
+        }
+
+        function ButtonGroup(_canvas/*, options*/) {
+            this.canvas = document.getElementById(_canvas);
+            this.context = this.canvas.getContext("2d");
+            this.margin = 3;
+            this.buttons = [];
+            
+            for (var i = 1 ; i < arguments.length; i++) {
+                this.buttons.push(arguments[i]);
+            }
+        }
+        
+        ButtonGroup.prototype.x = function () {
+            return this.margin;
+        }
+        
+        ButtonGroup.prototype.y = function (_n) {
+            return _n * 30 + 60 + this.margin;
+        }
+        
+        ButtonGroup.prototype.width = function () {
+            return this.canvas.width - 2 * this.margin;
+        }
+        
+        ButtonGroup.prototype.height = function () {
+            return 30 - 2 * this.margin; // The height is 30 by default for every button.
+        }
+        
+        ButtonGroup.prototype.tx = function () {
+            return this.x() + Math.floor(this.width() / 6);
+        }
+        
+        ButtonGroup.prototype.ty = function (_n) {
+            return this.y(_n) + Math.floor(this.height() / 3 * 2);
+        }
+        
+        ButtonGroup.prototype.draw = function () {
+            for (var i = 0; i < this.buttons.length; i++) {
+                this.drawButton(i);
+            }
+        }
+        
+        ButtonGroup.prototype.add = function (_button) {
+            this.buttons.push(_button);
+        }
+        
+        ButtonGroup.prototype.drawButton = function (_n) {
+            this.context.strokeStyle = "black";
+            this.context.strokeRect(this.x(), this.y(_n), this.width(), this.height());
+            this.context.fillStyle = "pink";
+            this.context.fillRect(this.x(), this.y(_n), this.width(), this.height());
+            this.context.font = "bold 12px Arial";
+            this.context.fillStyle = "black"
+            this.context.fillText(this.buttons[_n].text(), this.tx(), this.ty(_n));
+        }
+        
+        ButtonGroup.prototype.winPos2CvsPos = function (_y) {
+            var rect = this.canvas.getBoundingClientRect();
+            return Math.floor(((_y - rect.top * (this.canvas.height / rect.height)) - 60) / 30);
+        }
+        
+        ButtonGroup.prototype.activate = function () {
+            var self = this;
+            self.draw();
+            this.canvas.onclick = function (e) {
+                var n = self.winPos2CvsPos(e.clientY);
+                if (n < self.buttons.length) {
+                    self.buttons[n].onclick();
+                    self.drawButton(n);
+                }
+            }
+        }
+
+        function Timer(_canvas, _time, _event, _caller) {
+            this.canvas = document.getElementById(_canvas);
+            this.context = this.canvas.getContext("2d");
+            this.padding = 60;
+            this.time = _time;
+            this.now = -1;
+            this.wps = this.widthPerSecond();
+            this.timeoutHandler;
+            this.event = _event;
+            this.caller = _caller;
+        }
+        
+        Timer.prototype.widthPerSecond = function () {
+            return this.width() / this.time;
+        }
+        
+        Timer.prototype.x = function () {
+            return this.padding;
+        }
+        
+        Timer.prototype.y = function () {
+            return this.canvas.height - 5;
+        }
+        
+        Timer.prototype.width = function ()  {
+            return this.canvas.width - 2 * this.padding;
+        }
+        
+        Timer.prototype.height = function () {
+            return 5;
+        }
+        
+        Timer.prototype.nx = function () {
+            return this.padding + this.width() - this.nw();
+        }
+        
+        Timer.prototype.ny = function () {
+            return this.y();
+        }
+        
+        Timer.prototype.nw = function () {
+            return this.now * this.wps;
+        }
+        
+        Timer.prototype.nh = function () {
+            return this.height();
+        }
+        
+        Timer.prototype.tx = function () {
+            return this.nx();
+        }
+        
+        Timer.prototype.ty = function () {
+            return 10;
+        }
+        
+        Timer.prototype.tw = function () {
+            return this.padding;
+        }
+        
+        Timer.prototype.th = function () {
+            return this.canvas.height;
+        }
+        
+        Timer.prototype.text = function () {
+            return (this.time - this.now) + 's';
+        }
+        
+        Timer.prototype.init = function () {
+            this.context.strokeStyle = "green";
+            this.context.strokeRect(this.x(), this.y(), this.width(), this.height());
+            return this;
+        }
+        
+        Timer.prototype.draw = function () {
+            this.context.strokeStyle = "green";
+            this.context.strokeRect(this.x(), this.y(), this.width(), this.height());
+            this.context.fillStyle = "red";
+            this.context.fillRect(this.nx(), this.ny(), this.nw(), this.nh());
+            this.context.font = "bold 10px Arial";
+            this.context.fillStyle = "black";
+            this.context.fillText(this.text(), this.tx(), this.ty());
+            return this;
+        }
+        
+        Timer.prototype.drawText = function () {
+            this.context.font = "bold 10px Arial";
+            this.context.fillStyle = "black";
+            this.context.fillText(this.text(), this.tx(), this.ty());
+            return this;
+        }
+        
+        Timer.prototype.clear = function () {
+            this.context.fillStyle = "white";
+            this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            return this;
+        }
+        
+        Timer.prototype.count = function () {
+            var self = this;
+            
+            self.now++;
+            self.clear().draw();
+            
+            if (self.now >= self.time) {
+                self.event.call(self.caller);
+                return;
+            }
+            
+            this.timeoutHandler = setTimeout(function () {
+                self.count();
+            }, 1000);
+        }
+        
+        Timer.prototype.stop = function () {
+            clearTimeout(this.timeoutHandler);
+        }
+        
+        Timer.prototype.update = function () {
+            this.now = this.now < 5 ? 0 : this.now - 5;
+            this.clear().draw();
+        }
+
+        function Container(_lenOfBox, _marginOfBox, _canvas) {
+            this.lenOfBox = _lenOfBox;
+            this.marginOfBox = _marginOfBox;
+            this.canvas = document.getElementById(_canvas);
+            this.context = this.canvas.getContext("2d");
+            this.rows = Math.floor(this.canvas.height / this.lenOfBox);
+            this.columns = Math.floor(this.canvas.width / this.lenOfBox);
+            this.backgroundColor = "black";
+            this.outerBackgroundColor = "white";
+            this.lineColor = "red";
+            this.lineWidth = 5;
+            this.intervals = 30;
+            this.isPause = false;
+            this.timer;
+            this.remaining = [];
+            this.boxes;
+            
+            var selectedBox;
+            
+            // Initialize the boxes.
+            this.initBoxes = function (_pics) {
+                var pic = 0;
+                this.boxes = new Array(this.columns);
+                for (var i = 0; i < this.boxes.length; i++) {
+                    this.boxes[i] = new Array(this.rows);
+                    for (var j = 0; j < this.boxes[i].length; j++) {
+                        if (this.outer(i, j)) {
+                            this.boxes[i][j] = new Box(i, j, null, true, this);
+                        } else {
+                           this.boxes[i][j] = new Box(i, j, _pics[pic++], false, this);
+                           this.remaining.push(this.boxes[i][j]);
+                        }
+                    }
+                }
+                return this;
+            }
+
+            // Draw the screen.
+            this.initScreen = function () {
+                this.context.fillStyle = this.backgroundColor;
+                this.context.fillRect(this.lenOfBox, this.lenOfBox, this.canvas.width - 2 * this.lenOfBox, this.canvas.height - 2 * this.lenOfBox);
+                return this;
+            }
+            
+            this.assignPics = function (_pics) {
+                var pic = 0;
+                for (var i = 1; i < this.boxes.length - 1; i++) {
+                    for (var j = 1; j < this.boxes[i].length - 1; j++) {
+                        this.boxes[i][j].image = _pics[pic++];
+                    }
+                }
+                return this;
+            }
+            
+            this.numberOfBoxes = function () {
+                return (this.rows - 2) * (this.columns - 2);
+            }
+            
+            this.draw = function () {
+                for (var i = 1; i < this.boxes.length - 1; i++) {
+                    for (var j = 1; j < this.boxes[i].length - 1; j++) {
+                        this.boxes[i][j].draw();
+                    }
+                }
+                return this;
+            }
+            
+            this.remove = function (_box) {
+                for (var i = 0; i < this.remaining.length; i++) {
+                    if (this.remaining[i].withSameCoordinates(_box)) {
+                        for (var j = i; j < this.remaining.length; j++) {
+                            this.remaining[j] = this.remaining[j + 1];
+                        }
+                        break;
+                    }
+                }
+                
+                this.remaining.splice(this.remaining.length - 1, 1);
+                
+                return this;
+            }
+            
+            this.outer = function (_x, _y) {
+                return _x == 0 || _x == this.columns - 1 || _y == 0 || _y == this.rows - 1;
+            }
+            
+            this._winPos2CvsPos = function (_x, _y) {
+                var rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: Math.floor((_x - rect.left * (this.canvas.width / rect.width)) / this.lenOfBox),
+                    y: Math.floor((_y - rect.top * (this.canvas.height / rect.height)) / this.lenOfBox)
+                }
+            }
+            
+            this.onclick = function (e) {
+                var XY = this._winPos2CvsPos(e.clientX, e.clientY);
+                
+                var clickedonBox = this.boxes[XY.x][XY.y];
+                
+                // Click on the box that has been eliminated, do nothing.
+                if (!clickedonBox.hidden && !this.isPause) {
+                    // A box has been selected.
+                    if (selectedBox) {
+                        // Click on the box that has been selected, un-select it.
+                        if (selectedBox.withSameCoordinates(clickedonBox)) {
+                            selectedBox.unselect();
+                            selectedBox = null;
+                        } 
+                        // Another box with the same image that has been select and they can be connected with three or less lines
+                        // elimiate the two boxes, and set no box is selected.
+                        else if (this.connected(selectedBox, clickedonBox, true)) {
+                            this.remove(selectedBox.eliminate());
+                            this.remove(clickedonBox.eliminate());
+                            selectedBox = null;
+                            
+                            this.timer.update();
+                            
+                            if (this.completed()) {
+                                this.timer.stop();
+                            } else if (this.frozen()) {
+                                this.rearrange();
+                            }
+                        }
+                        // Un-select the box that has been selected and select current box.
+                        else {
+                            selectedBox.unselect();
+                            clickedonBox.select();
+                            selectedBox = clickedonBox;
+                        }
+                    } 
+                    // No box is selected, select current box.
+                    else {
+                        clickedonBox.select();
+                        selectedBox = clickedonBox;
+                    }
+                }
+                
+                return this;
+            }
+            
+            /*
+             * _l: the line that the box be visited on.
+             * _d: the direction of the from box.
+             */
+            this.unvisited = function (_x, _y, _l, _d, _visited) {
+                if (_x < 0 || _x >= this.columns || _y < 0 || _y >= this.rows) {
+                    return false;
+                }
+                
+                if (!this.boxes[_x][_y].hidden) {
+                    return false;
+                }
+                
+                // If current line is the nth line, and the box has been visited on the (n-m)th line, then it is visited.
+                // Eg. the box has been visited on the second line, then no need to visit it if current line is the second/third line.
+                for (var i = 0; i <= _l; i++) {
+                    if (_visited[_x][_y][i][_d]) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            }
+            
+            this.reached = function (_current, _toBox) {
+                var x = _current[0];
+                var y = _current[1];
+                var l = _current[2];
+                var d = _current[3];
+    
+                if (d == 0) { // The previous box is on the left or right side.
+                    if (_toBox.withCoordinates(x + 1, y)) {
+                        return true;
+                    }
+    
+                    if (_toBox.withCoordinates(x - 1, y)) {
+                        return true;
+                    }
+    
+                    if (l >= 3) { // If current line is the 3th line, no need to check any more.
+                        return false;
+                    }
+    
+                    if (_toBox.withCoordinates(x, y + 1)) {
+                        return true
+                    }
+    
+                    if (_toBox.withCoordinates(x, y - 1)) {
+                        return true;
+                    }
+                } else { // The previous box is on the up or down side.
+                    if (_toBox.withCoordinates(x, y + 1)) {
+                        return true;
+                    }
+    
+                    if (_toBox.withCoordinates(x, y - 1)) {
+                        return true;
+                    }
+    
+                    if (l >= 3) {
+                        return false;
+                    }
+    
+                    if (_toBox.withCoordinates(x + 1, y)) {
+                        return true;
+                    }
+    
+                    if (_toBox.withCoordinates(x - 1, y)) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            }
+            
+            this.bfs = function (_fromBox, _toBox, _drawRoute) {
+                var indexOfPreBox = -1;
+                
+                var queue = new Queue();
+                
+                // An array used to record the boxes that have been visited
+                // and they are on which line when they are visited (0 - from box, 1 - on the first line, 2 - on the second line, 3 - on the third line)
+                // and the direction of the from box (0 - left and right, 1 - up and down).
+                var visited = new Array(this.columns);
+                for (var i = 0; i < visited.length; i++) {
+                    visited[i] = new Array(this.rows);
+                    for (var j = 0; j < visited[i].length; j++) {
+                        visited[i][j] = new Array(4);
+                        for (var k = 0; k < 4; k++) {
+                            visited[i][j][k] = new Array(2);
+                        }
+                    }
+                }
+                
+                var current = [_fromBox.x, _fromBox.y, 0, 0]; // [x coodinate, y coodinate, line, direction]
+
+                if (this.reached(current, _toBox)) {
+                    return true;
+                }
+    
+                visited[_fromBox.x][_fromBox.y][1][0] = true;
+                visited[_fromBox.x][_fromBox.y][1][1] = true;
+    
+                if (this.unvisited(_fromBox.x + 1, _fromBox.y, 1, 0, visited)) { // right, current line is the 1th line.
+                    queue.push([_fromBox.x + 1, _fromBox.y, 1, 0, indexOfPreBox]); // [x coodinate, y coodinate, line, direction]
+                    visited[_fromBox.x + 1][_fromBox.y][1][0] = true;
+                }
+    
+                if (this.unvisited(_fromBox.x - 1, _fromBox.y, 1, 0, visited)) { // left, current line is the 1th line.
+                    queue.push([_fromBox.x - 1, _fromBox.y, 1, 0, indexOfPreBox]);
+                    visited[_fromBox.x - 1][_fromBox.y][1][0] = true;
+                }
+    
+                if (this.unvisited(_fromBox.x, _fromBox.y + 1, 1, 1, visited)) { // down, current line is the 1th line.
+                    queue.push([_fromBox.x, _fromBox.y + 1, 1, 1, indexOfPreBox]);
+                    visited[_fromBox.x][_fromBox.y + 1][1][1] = true;
+                }
+    
+                if (this.unvisited(_fromBox.x, _fromBox.y - 1, 1, 1, visited)) { // up, current line is the 1th line.
+                    queue.push([_fromBox.x, _fromBox.y - 1, 1, 1, indexOfPreBox]);
+                    visited[_fromBox.x][_fromBox.y - 1][1][1] = true;
+                }
+    
+                while (!queue.empty()) {
+                    current = queue.pop();
+                    
+                    indexOfPreBox++;
+    
+                    if (this.reached(current, _toBox)) {
+                        if (_drawRoute) {
+                            this.drawRoute(queue, indexOfPreBox, _fromBox, _toBox);
+                        }
+                        return true;
+                    }
+    
+                    if (current[3] == 0) { // The previous box is on the left or right side.
+                        if (this.unvisited(current[0] + 1, current[1], current[2], 0, visited)) { // right
+                            queue.push([current[0] + 1, current[1], current[2], 0, indexOfPreBox]);
+                            visited[current[0] + 1][current[1]][current[2]][0] = true;
+                        }
+    
+                        if (this.unvisited(current[0] - 1, current[1], current[2], 0, visited)) { // left
+                            queue.push([current[0] - 1, current[1], current[2], 0, indexOfPreBox]);
+                            visited[current[0] - 1][current[1]][current[2]][0] = true;
+                        }
+    
+                        if (current[2] >= 3) { // If current line is the 3th line, then no way to down or up.
+                            continue;
+                        }
+    
+                        if (this.unvisited(current[0], current[1] + 1, current[2] + 1, 1, visited)) { // down & line + 1
+                            queue.push([current[0], current[1] + 1, current[2] + 1, 1, indexOfPreBox]);
+                            visited[current[0]][current[1] + 1][current[2] + 1][1] = true;
+                        }
+    
+                        if (this.unvisited(current[0], current[1] - 1, current[2] + 1, 1, visited)) { // up & line + 1
+                            queue.push([current[0], current[1] - 1, current[2] + 1, 1, indexOfPreBox]);
+                            visited[current[0]][current[1] - 1][current[2] + 1][1] = true;
+                        }
+                    } else { // The previous box is on the up or down side.
+                        if (this.unvisited(current[0], current[1] + 1, current[2], 1, visited)) { // down
+                            queue.push([current[0], current[1] + 1, current[2], 1, indexOfPreBox]);
+                            visited[current[0]][current[1] + 1][current[2]][1] = true;
+                        }
+    
+                        if (this.unvisited(current[0], current[1] - 1, current[2], 1, visited)) { // up
+                            queue.push([current[0], current[1] - 1, current[2], 1, indexOfPreBox]);
+                            visited[current[0]][current[1] - 1][current[2]][1] = true;
+                        }
+    
+                        if (current[2] >= 3) { // If current line is the 3th line, then no way to right or left.
+                            continue;
+                        }
+    
+                        if (this.unvisited(current[0] + 1, current[1], current[2] + 1, 0, visited)) { // right & line + 1
+                            queue.push([current[0] + 1, current[1], current[2] + 1, 0, indexOfPreBox]);
+                            visited[current[0] + 1][current[1]][current[2] + 1][0] = true;
+                        }
+    
+                        if (this.unvisited(current[0] - 1, current[1], current[2] + 1, 0, visited)) { // left & line + 1
+                            queue.push([current[0] - 1, current[1], current[2] + 1, 0, indexOfPreBox]);
+                            visited[current[0] - 1][current[1]][current[2] + 1][0] = true;
+                        }
+                    }
+                }
+                
+                return false;
+            }
+            
+            this.connected = function (_fromBox, _toBox, _drawRoute) {
+                return _fromBox.withSameImage(_toBox) && this.bfs(_fromBox, _toBox, _drawRoute);
+            }
+            
+            this.drawRoute = function (_route, _start, _fromBox, _toBox) {
+                var current = _route.at(_start);
+                
+                var point;
+                
+                this.context.lineWidth = this.lineWidth;
+                this.context.strokeStyle = this.lineColor;
+                
+                this.context.beginPath();
+                
+                point = _toBox.pixelCoordinatesOfConnectedPoint(current[0], current[1]);
+                this.context.moveTo(point.x, point.y);
+                
+                point = _toBox.centerPixelCoordinates(current[0], current[1]);
+                this.context.lineTo(point.x, point.y);
+                
+                while (current[4] != -1) {
+                    current = _route.at(current[4]);
+                    
+                    point = _toBox.centerPixelCoordinates(current[0], current[1]);
+                    this.context.lineTo(point.x, point.y);
+                }
+                
+                point = _fromBox.pixelCoordinatesOfConnectedPoint(current[0], current[1]);
+                this.context.lineTo(point.x, point.y);
+                
+                this.context.stroke();
+                
+                this.clearRoute(_route, _start, _fromBox, _toBox);
+            }
+            
+            this.clearRoute = function(_route, _start, _fromBox, _toBox) {
+                var current;
+                var route = [];
+                
+                route.push(_toBox);
+                
+                current = _route.at(_start);
+                route.push(this.boxes[current[0]][current[1]]);
+                
+                while (current[4] != -1) {
+                    current = _route.at(current[4]);
+                    route.push(this.boxes[current[0]][current[1]]);
+                }
+                
+                route.push(_fromBox);
+                
+                this.doClear(route, -2);
+            }
+            
+            this.doClear = function (_route, _index) {
+                var self = this;
+                
+                if (_index >= _route.length) {
+                    return self;
+                }
+                
+                if (_index >= 0) {
+                    _route[_index].clear();
+                }
+                
+                _index++;
+                
+                setTimeout(function () {
+                    self.doClear(_route, _index);
+                }, self.interval);
+            }
+            
+            this.frozen = function (_tips, _auto, _drawRoute) {
+                if (this.remaining.length == 0) {
+                    return false;
+                }
+                
+                for (var i = 0; i < this.remaining.length; i++) {
+                    for (var j = i + 1; j < this.remaining.length; j++) {
+                        if (this.connected(this.remaining[i], this.remaining[j], _drawRoute)) {
+                            if (_tips) {
+                                if (selectedBox) {
+                                    selectedBox.unselect();
+                                    selectedBox = null;
+                                }
+                                this.remaining[i].select();
+                                this.remaining[j].select();
+                                
+                            }
+                            
+                            if (_auto) { // For test only
+                                var box1 = this.remaining[i].eliminate();
+                                var box2 = this.remaining[j].eliminate();
+                                this.remove(box1);
+                                this.remove(box2);
+                                
+                                if (this.completed()) {
+                                    this.timer.stop();
+                                } else if (this.frozen()) {
+                                    this.rearrange();
+                                }
+                            }
+                            
+                            return false;
+                        }
+                    }
+                }
+                
+                return true;
+            }
+            
+            this.adjust = function () {
+                var j;
+                for (var i = 0; i < this.remaining.length; i++) {
+                    j = Math.floor(Math.random() * this.remaining.length);
+                    if (i != j) {
+                        this.remaining[i].swapImage(this.remaining[j]);
+                    }
+                }
+                return this;
+            }
+            
+            this.rearrange = function () {
+                do {
+                    this.adjust();
+                } while (this.frozen());
+                
+                for (var i = 0; i < this.remaining.length; i++) {
+                    this.remaining[i].draw();
+                }
+                
+                return this;
+            }
+            
+            this.completed = function () {
+                return this.remaining.length == 0;
+            }
+            
+            this.tips = function () {
+                if (!this.isPause) {
+                    this.frozen(true);
+                }
+                return this;
+            }
+            
+            this.auto = function () {
+                if (!this.isPause) {
+                    this.frozen(true, true, true);
+                }
+                return this;
+            }
+            
+            this.running = function (_pics) {
+                var self = this;
+                
+                self.initBoxes(_pics);
+                
+                self.initScreen();
+                
+                self.draw();
+                
+                self.canvas.onclick = function (e) {
+                    self.onclick(e);
+                }
+                
+                self.timer.count();
+            }
+            
+            this.pause = function () {
+                if (!this.isPause) {
+                    this.timer.stop();
+                    for (var i = 0; i < this.remaining.length; i++) {
+                        this.remaining[i].clear();
+                    }
+                } else {
+                    this.timer.count();
+                    for (var i = 0; i < this.remaining.length; i++) {
+                        this.remaining[i].draw();
+                    }
+                }
+                
+                this.isPause = !this.isPause;
+            }
+            
+            this.failed = function () {
+                this.isPause = true;
+                for (var i = 0; i < this.remaining.length; i++) {
+                        this.remaining[i].eliminate();
+                }
+                this.remaining.splice(0, this.remaining.length);
+                this.isPause = false;
+                
+                /*
+                 * Add some pictures and buttons?
+                 *
+                 *
+                 */
+            }
+            
+            this.timer = new Timer("timer", 200, this.failed, this);
+        }
+
+        var picturesManager = new PicturesManager("images/", 36);
+        
+        picturesManager.ready(function () {
+            var container = new Container(60, 3, "cv");
+            
+            container.running(
+                picturesManager.generate(
+                    container.numberOfBoxes()
+                )
+            );
+            
+            var buttonGroup = new ButtonGroup(
+                "buttonGroup",
+                new Button('Tips', container.tips, container, 5),
+                new Button('Auto', container.auto, container, 5),
+                new Button('Pause', container.pause, container, null)
+            );
+            
+            buttonGroup.activate();
+        });
+    </script>
+</body>
+</html>
